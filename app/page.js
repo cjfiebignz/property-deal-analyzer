@@ -172,7 +172,7 @@ export default function PropertyAnalyzer() {
 
     setTimeout(() => {
       const listings = listingText.split(/\n\s*\n|----/).map(l => l.trim()).filter(l => l.length > 0);
-      const batchResultsArr = [];
+      let batchResultsArr = [];
       let success = 0;
 
       listings.forEach((text, i) => {
@@ -180,7 +180,7 @@ export default function PropertyAnalyzer() {
         if (price && rent) {
           try {
             const deal = analyzeDeal({
-              name: text.split('\n')[0].substring(0, 50).trim() || `Batch Listing ${i + 1}`,
+              name: text.split('\n')[0].substring(0, 50).trim() || `Listing ${i + 1}`,
               notes: 'Batch parsed',
               purchasePrice: parseFloat(price),
               weeklyRent: parseFloat(rent),
@@ -194,10 +194,15 @@ export default function PropertyAnalyzer() {
       });
 
       if (success === 0) {
-        setParsingMessage({ text: 'Could not extract valid price and rent from any listings in the batch.', type: 'error' });
+        setParsingMessage({ text: 'No valid deals found. Make sure listings include price and rent.', type: 'error' });
+        setBatchResults([]);
       } else {
+        // Sort by Net Yield descending
+        batchResultsArr.sort((a, b) => b.netYield - a.netYield);
         setBatchResults(batchResultsArr);
         setBatchSummary({ total: listings.length, success, failed: listings.length - success });
+        // ISSUE 2: Stronger feedback
+        setParsingMessage({ text: `Analyzed ${success} listings. Showing top-performing deals.`, type: 'success' });
         scrollTo(reviewRef);
       }
     }, 0);
@@ -260,6 +265,7 @@ export default function PropertyAnalyzer() {
             failed++;
           }
         }
+        resultsArr.sort((a, b) => b.netYield - a.netYield);
         setCsvResults(resultsArr);
         setCsvSummary({ total: lines.length - 1, success, failed });
         if (success > 0) scrollTo(reviewRef);
@@ -376,9 +382,17 @@ export default function PropertyAnalyzer() {
   const bestSavedId = sortedSaved.length > 0 ? sortedSaved[0].dealId : null;
   const compareList = savedDeals.filter(d => selectedDeals.includes(d.dealId));
 
+  // Determine best in batch/csv
+  const bestBatchId = batchResults.length > 0 ? batchResults[0].dealId : null;
+  const bestCsvId = csvResults.length > 0 ? csvResults[0].dealId : null;
+
   return (
     <main style={styles.container}>
       <h1 style={styles.title}>Property Deal Analyzer</h1>
+      {/* ISSUE 5: Guidance under main title */}
+      <p style={{ textAlign: 'center', color: '#666', marginTop: '-30px', marginBottom: '50px' }}>
+        Analyze property deals in seconds. Paste a listing below to get started.
+      </p>
 
       {/* STEP 1: IMPORT DEAL */}
       <section ref={importRef} style={{ ...styles.section, backgroundColor: '#ffffff' }}>
@@ -390,19 +404,24 @@ export default function PropertyAnalyzer() {
         <div style={styles.importGrid}>
           {/* Tool Area */}
           <div style={styles.importTools}>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={styles.label}>Paste Listing Description</label>
+            {/* ISSUE 4: Guide user in Step 1 */}
+            <p style={{ fontWeight: 'bold', fontSize: '1.1rem', marginBottom: '15px' }}>👉 Start by pasting a property listing below (fastest way)</p>
+            
+            <div style={{ marginBottom: '30px' }}>
+              <h3 style={{ margin: '0 0 5px 0' }}>Find the Best Deals Instantly</h3>
+              <p style={{ margin: '0 0 15px 0', color: '#666', fontSize: '0.95rem' }}>Paste multiple property listings below and we’ll analyze and rank them by performance.</p>
+              
               <textarea 
                 style={styles.textarea} 
-                rows="6" 
-                placeholder="Copy and paste a listing from TradeMe here..."
+                rows="8" 
+                placeholder="Copy and paste property listings from TradeMe here..."
                 value={listingText}
                 onChange={handleListingTextType}
               />
-              <p style={styles.tip}>Tip: You can paste multiple listings separated by blank lines for batch mode.</p>
-              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+              <p style={styles.tip}>Tip: Separate listings with a blank line. Each listing needs a price and rent to be analyzed.</p>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
                 <button onClick={handleExtractToForm} style={styles.primaryBtn}>Extract to Form</button>
-                <button onClick={handleBatchAnalyze} style={styles.secondaryBtn}>Analyze Batch</button>
+                <button onClick={handleBatchAnalyze} style={styles.finderBtn}>Find Best Deals</button>
               </div>
             </div>
 
@@ -484,31 +503,52 @@ export default function PropertyAnalyzer() {
               <div style={styles.metric}><strong>Net Yield:</strong> <span style={{ fontSize: '1.2rem' }}>{results.netYield}%</span></div>
               <div style={styles.metric}><strong>Weekly Cashflow:</strong> <span style={{ fontSize: '1.2rem' }}>{formatCurrency(results.weeklyCashflow)}</span></div>
             </div>
+            {/* ISSUE 3: Prominent alert matching */}
             {alertCheckResult && (
               <div style={{ ...styles.alertCheck, backgroundColor: alertCheckResult.status === 'match' ? '#e8f5e9' : '#fff5f5', color: alertCheckResult.status === 'match' ? '#2e7d32' : '#d32f2f' }}>
-                {alertCheckResult.status === 'match' ? `✅ Matches ${alertCheckResult.matches.length} Alert Criteria` : '❌ No Alert Criteria Met'}
+                <div style={{ fontSize: '1.2rem', marginBottom: '5px' }}>
+                  {alertCheckResult.status === 'match' ? '🔥 This deal meets your criteria' : '⚠️ This deal does not meet your criteria'}
+                </div>
+                {alertCheckResult.status === 'match' && <p style={{ margin: 0, fontWeight: 'normal' }}>Matches {alertCheckResult.matches.length} criteria.</p>}
               </div>
             )}
           </div>
         )}
 
-        {/* Batch / CSV Import Results List */}
+        {/* Batch / CSV Import Results List (Deal Finder Mode) */}
         {(batchResults.length > 0 || csvResults.length > 0) && (
           <div style={styles.batchContainer}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-              <h3 style={{ margin: 0 }}>Imported Preview</h3>
-              <button onClick={batchResults.length > 0 ? handleSaveBatch : handleSaveCsv} style={styles.saveBtn}>Save All OK Deals</button>
+              <h3 style={{ margin: 0 }}>Deal Finder Results (Ranked by Yield)</h3>
+              <button onClick={batchResults.length > 0 ? handleSaveBatch : handleSaveCsv} style={styles.saveBtn}>Save All Unique Deals</button>
             </div>
+            
+            {/* ISSUE 1: Batch / CSV summaries */}
+            {batchSummary && <p style={{ fontSize: '0.85rem', color: '#666', marginBottom: '15px' }}>Batch: {batchSummary.success} successful, {batchSummary.failed} failed</p>}
+            {csvSummary && <p style={{ fontSize: '0.85rem', color: '#666', marginBottom: '15px' }}>CSV: {csvSummary.success} successful, {csvSummary.failed} failed</p>}
+
             <div style={styles.list}>
-              {(batchResults.length > 0 ? batchResults : csvResults).map(deal => (
-                <div key={deal.dealId} style={styles.listItem}>
-                  <div style={{ flex: 1 }}>
-                    <strong>{deal.name}</strong>: {deal.netYield}% Yield | {formatCurrency(deal.weeklyCashflow)}/wk
+              {(batchResults.length > 0 ? batchResults : csvResults).map((deal, idx) => {
+                const isBest = (batchResults.length > 0 ? deal.dealId === bestBatchId : deal.dealId === bestCsvId);
+                return (
+                  <div key={deal.dealId} style={{ 
+                    ...styles.listItem, 
+                    border: isBest ? '2px solid #28a745' : '1px solid #eee',
+                    transform: isBest ? 'scale(1.01)' : 'none',
+                    backgroundColor: isBest ? '#f0fff4' : '#fff'
+                  }}>
+                    <div style={{ flex: 1 }}>
+                      {isBest && <span style={styles.bestBadge}>🏆 BEST DEAL</span>}
+                      <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{deal.name}</div>
+                      <div style={{ fontSize: '0.9rem', color: '#666' }}>{deal.netYield}% Net Yield | {formatCurrency(deal.weeklyCashflow)}/wk</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={getScoreStyle(deal.dealScore)}>{deal.dealScore}</div>
+                      {getMatchingAlerts(deal).length > 0 && <span style={styles.alertBadge}>MATCHES ALERT</span>}
+                    </div>
                   </div>
-                  <span style={getScoreStyle(deal.dealScore)}>{deal.dealScore}</span>
-                  {getMatchingAlerts(deal).length > 0 && <span style={styles.alertBadge}>MATCH</span>}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -603,7 +643,7 @@ const styles = {
   fileInput: { fontSize: '0.9rem', color: '#666' },
   tip: { fontSize: '0.85rem', color: '#888', marginTop: '5px' },
   primaryBtn: { padding: '12px 24px', backgroundColor: '#000', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', transition: 'opacity 0.2s' },
-  secondaryBtn: { padding: '12px 24px', backgroundColor: '#6200ee', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '700' },
+  finderBtn: { padding: '12px 24px', backgroundColor: '#28a745', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '700' },
   analyzeBtn: { width: '100%', padding: '18px', backgroundColor: '#0070f3', color: '#fff', border: 'none', borderRadius: '12px', cursor: 'pointer', fontSize: '1.2rem', fontWeight: '800', marginTop: '10px' },
   
   // Step 2: Analyze
@@ -617,7 +657,7 @@ const styles = {
   saveBtn: { padding: '10px 20px', backgroundColor: '#28a745', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700' },
   alertCheck: { marginTop: '20px', padding: '15px', borderRadius: '10px', fontWeight: '800', textAlign: 'center' },
   
-  batchContainer: { backgroundColor: '#e8f5e9', padding: '25px', borderRadius: '15px', marginBottom: '30px' },
+  batchContainer: { backgroundColor: '#fcfcfc', padding: '25px', borderRadius: '15px', marginBottom: '30px', border: '1px solid #eee' },
   compareContainer: { padding: '30px', border: '3px solid #6200ee', borderRadius: '15px', backgroundColor: '#fff', marginBottom: '30px' },
   compareGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px', marginTop: '20px', borderTop: '1px solid #eee', paddingTop: '20px' },
   compareHeader: { fontWeight: '900', fontSize: '1.1rem', color: '#6200ee' },
@@ -634,12 +674,11 @@ const styles = {
   delLink: { background: 'none', border: 'none', color: '#d32f2f', cursor: 'pointer', textDecoration: 'underline', fontSize: '0.8rem' },
 
   list: { display: 'flex', flexDirection: 'column', gap: '12px' },
-  listItem: { display: 'flex', alignItems: 'center', padding: '15px', border: '1px solid #eee', borderRadius: '12px', backgroundColor: '#fff' },
+  listItem: { display: 'flex', alignItems: 'center', padding: '15px', border: '1px solid #eee', borderRadius: '12px', backgroundColor: '#fff', transition: 'transform 0.2s ease' },
   alertBadge: { marginLeft: '8px', backgroundColor: '#6200ee', color: '#fff', fontSize: '0.65rem', padding: '3px 8px', borderRadius: '20px', fontWeight: '900' },
-  bestBadge: { marginLeft: '8px', backgroundColor: '#28a745', color: '#fff', fontSize: '0.65rem', padding: '3px 8px', borderRadius: '20px', fontWeight: '900' },
+  bestBadge: { marginBottom: '5px', display: 'inline-block', backgroundColor: '#28a745', color: '#fff', fontSize: '0.7rem', padding: '3px 8px', borderRadius: '20px', fontWeight: '900' },
   delBtn: { padding: '6px 12px', backgroundColor: 'transparent', color: '#d32f2f', border: '1px solid #d32f2f', borderRadius: '8px', cursor: 'pointer' },
   compareBtn: { padding: '8px 16px', backgroundColor: '#6200ee', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700' },
-  csvButton: { padding: '12px 24px', backgroundColor: '#018786', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '700' },
   
   msg: { marginTop: '15px', fontWeight: '700' },
   subtext: { fontSize: '0.9rem', color: '#666', marginBottom: '10px' },
