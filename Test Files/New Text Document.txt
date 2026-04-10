@@ -1,0 +1,3 @@
+name,purchasePrice,weeklyRent
+Test 1,500000,600
+Test 2,700000,800
